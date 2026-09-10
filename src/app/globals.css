@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0e120f;
+  --color-panel: #161d18;
+  --color-panel2: #1d2620;
+  --color-line: #2a362d;
+  --color-cream: #ece6d6;
+  --color-muted: #93a094;
+  --color-gold: #e0b04c;
+  --color-good: #6fbf73;
+  --color-warn: #d8a23a;
+  --color-bad: #d76a5e;
+  --color-felt: #315c46;
+  --color-felt2: #264838;
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-body: var(--font-space), system-ui, sans-serif;
+}
+
+html, body {
+  background: var(--color-ink);
+  color: var(--color-cream);
+  font-family: var(--font-body);
+}
+
+.font-display { font-family: var(--font-display); }
+
+.panel { background: var(--color-panel); border: 1px solid var(--color-line); border-radius: 14px; }
+.panel2 { background: var(--color-panel2); border: 1px solid var(--color-line); border-radius: 12px; }
+.card-hover { transition: transform .18s ease, border-color .18s ease; }
+.card-hover:hover { transform: translateY(-2px); border-color: #3d5044; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .55rem .95rem; border-radius: 10px; font-weight: 600; font-size: .875rem;
+  transition: all .15s ease; cursor: pointer; border: 1px solid transparent;
+}
+.btn-gold { background: var(--color-gold); color: #1a1408; }
+.btn-gold:hover { background: #efc469; }
+.btn-ghost { border-color: var(--color-line); color: var(--color-cream); background: transparent; }
+.btn-ghost:hover { background: var(--color-panel2); border-color: #3d5044; }
+.btn-danger { border-color: #4a2d29; color: var(--color-bad); background: transparent; }
+.btn-danger:hover { background: #2a1a18; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.input {
+  width: 100%; background: var(--color-panel2); border: 1px solid var(--color-line);
+  border-radius: 10px; padding: .55rem .8rem; color: var(--color-cream); font-size: .875rem;
+}
+.input:focus { outline: none; border-color: var(--color-gold); }
+
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.label { font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; color: var(--color-muted); font-weight: 700; }
+
+.pill { display:inline-flex; align-items:center; gap:.35rem; padding:.18rem .6rem; border-radius:999px; font-size:.72rem; font-weight:700; }
+
+.scroll-thin::-webkit-scrollbar { width: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: #2a362d; border-radius: 4px; }
+
+.board-glow { box-shadow: 0 24px 80px -24px rgba(0,0,0,.8), 0 0 0 1px #2a362d; border-radius: 6px; overflow: hidden; }
+
+.coach-quote { font-family: var(--font-display); font-style: italic; }
