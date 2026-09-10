@@ -8,12 +8,20 @@ export type EvalResult = {
   depth: number;
 };
 
+export type MultiResult = {
+  moves: { uci: string; cp: number; mate: number | null }[]; // ranked best-first
+  depth: number;
+};
+
 type Pending = {
   fen: string;
   depth: number;
-  resolve: (r: EvalResult) => void;
+  multi: number; // 1 = single pv
+  resolve: (r: { eval: EvalResult; multi: MultiResult }) => void;
   reject: (e: Error) => void;
 };
+
+type Line = { uci: string; cp: number; mate: number | null; pv: string; depth: number };
 
 export class StockfishEngine {
   private worker: Worker;
@@ -21,7 +29,7 @@ export class StockfishEngine {
   private queue: Pending[] = [];
   private busy = false;
   private cur: Pending | null = null;
-  private bestInfo: Partial<EvalResult> = {};
+  private lines = new Map<number, Line>();
 
   constructor() {
     this.worker = new Worker("/stockfish/stockfish-18-lite-single.js");
@@ -56,37 +64,42 @@ export class StockfishEngine {
       const line: string = e.data;
       if (line.startsWith("info")) {
         const dM = /\bdepth (\d+)/.exec(line);
+        const mpvM = /\bmultipv (\d+)/.exec(line);
         const sM = /score (cp|mate) (-?\d+)/.exec(line);
-        const pvM = /\bpv ([a-h][1-8][a-h][1-8][qrbn]?(?: [a-h][1-8][a-h][1-8][qrbn]?)*)?/.exec(line);
-        if (dM && sM) {
-          const depth = Number(dM[1]);
-          const cur = this.bestInfo.depth ?? -1;
-          if (depth >= cur) {
-            this.bestInfo.depth = depth;
-            if (sM[1] === "cp") {
-              this.bestInfo.cp = Number(sM[2]);
-              this.bestInfo.mate = null;
-            } else {
-              this.bestInfo.mate = Number(sM[2]);
-              this.bestInfo.cp = Number(sM[2]) > 0 ? 100000 - Math.abs(Number(sM[2])) * 100 : -100000 + Math.abs(Number(sM[2])) * 100;
-            }
-            if (pvM) this.bestInfo.pv = (pvM[1] ?? "").trim();
-          }
-        }
-        if (line.includes("currmove") && this.cur) this.cur.fen, void 0; // keep alive / progress noop
+        const pvM = /\bpv ((?:[a-h][1-8][a-h][1-8][qrbn]?(?: )?)+)/.exec(line);
+        if (!dM || !sM) return;
+        const depth = Number(dM[1]);
+        const mpv = mpvM ? Number(mpvM[1]) : 1;
+        const pv = (pvM?.[1] ?? "").trim();
+        if (!pv) return;
+        const abs = Number(sM[2]);
+        const rec: Line = {
+          depth,
+          uci: pv.split(" ")[0],
+          pv,
+          cp: sM[1] === "cp" ? abs : abs > 0 ? 100000 - abs * 100 : -100000 + abs * 100,
+          mate: sM[1] === "mate" ? abs : null,
+        };
+        const prev = this.lines.get(mpv);
+        if (!prev || depth >= prev.depth) this.lines.set(mpv, rec);
       } else if (line.startsWith("bestmove")) {
         const best = line.split(" ")[1] ?? "";
-        const info = this.bestInfo;
         const p = this.cur;
+        const lines = this.lines;
         this.cur = null;
-        this.bestInfo = {};
+        this.lines = new Map();
         this.busy = false;
+        const ranked = [...lines.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+        const first = ranked[0];
         p.resolve({
-          cp: info.cp ?? 0,
-          mate: info.mate ?? null,
-          bestMoveUci: best,
-          pv: info.pv ?? "",
-          depth: info.depth ?? 0,
+          eval: {
+            cp: first?.cp ?? 0,
+            mate: first?.mate ?? null,
+            bestMoveUci: first?.uci || best,
+            pv: first?.pv ?? best,
+            depth: first?.depth ?? 0,
+          },
+          multi: { moves: ranked.map((v) => ({ uci: v.uci, cp: v.cp, mate: v.mate })), depth: first?.depth ?? 0 },
         });
         this.next();
       }
@@ -99,20 +112,31 @@ export class StockfishEngine {
     if (!p) return;
     this.busy = true;
     this.cur = p;
-    this.bestInfo = {};
+    this.lines = new Map();
+    this.send("ucinewgame");
+    if (p.multi > 1) this.send(`setoption name MultiPV value ${p.multi}`);
     this.send(`position fen ${p.fen}`);
     this.send(`go depth ${p.depth}`);
+    if (p.multi > 1) this.send("setoption name MultiPV value 1");
   }
 
   async ready() {
     await this.readyPromise;
   }
 
-  evaluate(fen: string, depth = 13): Promise<EvalResult> {
-    return new Promise((resolve, reject) => {
-      this.queue.push({ fen, depth, resolve, reject });
+  private request(fen: string, depth: number, multi = 1) {
+    return new Promise<{ eval: EvalResult; multi: MultiResult }>((resolve, reject) => {
+      this.queue.push({ fen, depth, multi, resolve, reject });
       this.next();
     });
+  }
+
+  async evaluate(fen: string, depth = 13): Promise<EvalResult> {
+    return (await this.request(fen, depth, 1)).eval;
+  }
+
+  async evaluateMulti(fen: string, depth = 10, k = 4): Promise<MultiResult> {
+    return (await this.request(fen, depth, Math.max(1, k))).multi;
   }
 
   quit() {
