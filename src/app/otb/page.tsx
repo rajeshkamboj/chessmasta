@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import Board from "@/components/Board";
 import MoveList from "@/components/MoveList";
 import { getEngine, cpToPawns } from "@/lib/chess/engine";
-import { pickBotMove, eloDescription } from "@/lib/chess/bot";
+import { pickBotMove, fallbackMove, eloDescription } from "@/lib/chess/bot";
 import { checksCapturesThreats, categorize, detectPattern, opponentThreats, replaySans, uciToSan, START_FEN, PATTERN_LABELS } from "@/lib/chess/analyze";
 import { coachForMistake, threatReveal } from "@/lib/chess/coach";
 import { Swords, Eye, ListChecks, Send, ClipboardPen } from "lucide-react";
@@ -31,6 +31,9 @@ export default function OtbPage() {
   const [candidate, setCandidate] = useState<{ from: string; to: string; san: string } | null>(null);
   const [feedback, setFeedback] = useState<{ category: string; text: string; best: string; drop: number; pattern: string } | null>(null);
   const [engineThinking, setEngineThinking] = useState(false);
+  const [engineNote, setEngineNote] = useState("");
+  const [stuck, setStuck] = useState(false);
+  const busy = useRef(false);
   const userTurn = useRef(true);
   void fens;
 
@@ -63,17 +66,27 @@ export default function OtbPage() {
     }
   }
 
+  /** Bot replies. Never throws, never leaves the board locked. */
   async function engineMove(g: Chess) {
     setEngineThinking(true);
     try {
-      const bm = await pickBotMove(g.fen(), meta.elo);
-      if (!bm) return;
+      let bm = null;
+      try {
+        bm = await pickBotMove(g.fen(), meta.elo);
+      } catch {
+        bm = fallbackMove(g.fen());
+        setEngineNote("Engine hiccupped — the bot played a simple move instead. Play on.");
+      }
+      if (!bm) return false;
+      if (bm.fallback) setEngineNote("Engine was slow, so the bot used its quick brain for that move.");
       const m = g.move({ from: bm.from, to: bm.to, promotion: bm.promotion || "q" });
       setFen(g.fen());
       fens.current.push(g.fen());
       setSans((s) => [...s, m.san]);
       setLast({ from: m.from, to: m.to });
-      return bm;
+      return true;
+    } catch {
+      return false;
     } finally {
       setEngineThinking(false);
     }
@@ -85,7 +98,7 @@ export default function OtbPage() {
       const san = push(from, to);
       return san !== null;
     }
-    if (!isMyTurn) return false;
+    if (!isMyTurn || busy.current) return false;
     const g = new Chess(fen);
     try {
       const m = g.move({ from, to, promotion: "q" });
@@ -98,16 +111,17 @@ export default function OtbPage() {
     }
   }
 
+  /** Coach evaluation of the user's candidate. If the engine fails, play on without coaching. */
   async function submitCandidate(c = candidate) {
-    if (!c) return;
+    if (!c || busy.current) return;
+    busy.current = true;
     setEngineThinking(true);
     try {
       const e = getEngine();
-      await e.ready();
-      const before = await e.evaluate(fen, 12);
+      const before = await e.evaluate(fen, 11, 1200);
       const g = new Chess(fen);
       g.move(c.san);
-      const after = await e.evaluate(g.fen(), 12);
+      const after = await e.evaluate(g.fen(), 11, 1200);
       const evalBefore = before.cp;
       const evalAfter = -after.cp;
       const drop = Math.max(0, Math.round(evalBefore - evalAfter));
@@ -127,29 +141,60 @@ export default function OtbPage() {
       const ply = sans.length + 1;
       setReflections((r) => ({ ...r, [String(ply)]: { ...r[String(ply)], candidate: c.san, dropCp: drop, pattern } }));
       setStage("feedback");
+      setEngineNote("");
+    } catch {
+      // Engine unavailable: don't block the game — just play the move.
+      setEngineNote("Coach couldn't evaluate that move (engine restarting). The game continues — full analysis still works after you save.");
+      setEngineThinking(false);
+      busy.current = false;
+      await commitMove(c);
+      return;
     } finally {
       setEngineThinking(false);
+      busy.current = false;
+    }
+  }
+
+  /** Push the user's move onto the board and let the bot reply. */
+  async function commitMove(c: { from: string; to: string; san: string } | null) {
+    if (!c || busy.current) return;
+    busy.current = true;
+    try {
+      const g = new Chess(fen);
+      try {
+        g.move(c.san);
+      } catch {
+        setCandidate(null);
+        setFeedback(null);
+        setStage(meta.fast ? "candidate" : "threat");
+        return;
+      }
+      setFen(g.fen());
+      fens.current.push(g.fen());
+      setSans((s) => [...s, c.san]);
+      setLast({ from: c.from, to: c.to });
+      setCandidate(null);
+      setFeedback(null);
+      setThreatText(""); setScanText(""); setReasonText("");
+      if (g.isGameOver()) {
+        setStage("done");
+        return;
+      }
+      busy.current = false; // engineMove has its own guard
+      await engineMove(g);
+      busy.current = true;
+      if (g.isGameOver()) {
+        setStage("done");
+        return;
+      }
+      setStage(meta.fast ? "candidate" : "threat");
+    } finally {
+      busy.current = false;
     }
   }
 
   async function confirmMove() {
-    if (!candidate) return;
-    const g = new Chess(fen);
-    g.move(candidate.san);
-    setFen(g.fen());
-    fens.current.push(g.fen());
-    setSans((s) => [...s, candidate.san]);
-    setLast({ from: candidate.from, to: candidate.to });
-    setCandidate(null);
-    setFeedback(null);
-    setThreatText(""); setScanText(""); setReasonText("");
-    if (g.isGameOver()) {
-      setStage("done");
-      return;
-    }
-    await engineMove(g);
-    if (g.isGameOver()) { setStage("done"); return; }
-    setStage(meta.fast ? "candidate" : "threat");
+    await commitMove(candidate);
   }
 
   // Fast mode: auto-continue past the feedback after a beat.
@@ -159,6 +204,16 @@ export default function OtbPage() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, feedback]);
+
+  // Watchdog: if the engine has been "thinking" too long, offer a way out.
+  useEffect(() => {
+    if (!engineThinking) {
+      setStuck(false);
+      return;
+    }
+    const t = setTimeout(() => setStuck(true), 12000);
+    return () => clearTimeout(t);
+  }, [engineThinking]);
 
   function saveReflection(updates: Partial<Reflection>) {
     const ply = String(sans.length + (isMyTurn ? 1 : 0));
@@ -250,6 +305,34 @@ export default function OtbPage() {
             {candidate && stage === "candidate" && !meta.fast && (
               <p className="mt-2 text-sm text-muted">Candidate: <strong className="text-cream">{candidate.san}</strong> — confirm or play a different move on the board.</p>
             )}
+            {mode === "live" && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                {engineThinking ? (
+                  <span className="flex items-center gap-2 text-muted">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-gold" />
+                    {isMyTurn ? "Coach is checking your move…" : `${meta.opponent} is thinking…`}
+                  </span>
+                ) : !over && !isMyTurn && stage !== "feedback" ? (
+                  <button className="btn btn-ghost" onClick={() => void engineMove(new Chess(fen))}>Bot's turn — nudge it</button>
+                ) : null}
+                {stuck && (
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => {
+                      getEngine().quit();
+                      setEngineThinking(false);
+                      busy.current = false;
+                      setStuck(false);
+                      setEngineNote("Engine restarted. Continue playing — it will reload on the next move.");
+                      if (candidate && isMyTurn) void commitMove(candidate);
+                    }}
+                  >
+                    Engine stuck — restart & play on
+                  </button>
+                )}
+              </div>
+            )}
+            {engineNote && <p className="mt-2 text-xs text-warn">{engineNote}</p>}
             {over && <p className="mt-2 font-display text-lg font-semibold text-gold">{resultText}</p>}
           </div>
 

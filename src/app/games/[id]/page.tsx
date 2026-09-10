@@ -48,7 +48,16 @@ export default function GameReview({ params }: { params: Promise<{ id: string }>
       const raw: { cp: number; bestMoveUci: string; pv: string }[] = [];
       for (let i = 0; i < fens.length; i++) {
         setProgress(`Analyzing move ${i}/${fens.length - 1}…`);
-        raw.push(await e.evaluate(fens[i], 12));
+        try {
+          raw.push(await e.evaluate(fens[i], 12, 1200));
+        } catch {
+          // engine restarted — retry once, then fall back to a neutral eval
+          try {
+            raw.push(await e.evaluate(fens[i], 10, 1000));
+          } catch {
+            raw.push({ cp: raw[i - 1]?.cp !== undefined ? -raw[i - 1].cp : 0, bestMoveUci: "", pv: "" });
+          }
+        }
       }
       const userColor = game.userColor;
       const evals: Eval[] = game.moves.map((m, i) => {
