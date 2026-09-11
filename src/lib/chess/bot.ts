@@ -1,5 +1,5 @@
 import { Chess, Move } from "chess.js";
-import { getEngine } from "./engine";
+import { browserEngineAvailable, getEngine } from "./engine";
 
 export type BotMove = { from: string; to: string; promotion?: string; blundered: boolean; fallback?: boolean };
 
@@ -74,6 +74,8 @@ export async function pickBotMove(fen: string, elo: number): Promise<BotMove | n
     const m = pool[Math.floor(Math.random() * pool.length)];
     return { from: m.from, to: m.to, promotion: m.promotion, blundered: true };
   }
+
+  if (!browserEngineAvailable()) return fallbackMove(fen);
 
   try {
     const e = getEngine();

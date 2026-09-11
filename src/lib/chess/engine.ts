@@ -28,6 +28,28 @@ type Req = {
 // script's URL, so both files must keep these exact names in /public/stockfish.
 const WORKER_URL = "/stockfish/stockfish.js";
 
+export function browserEngineAvailable(): boolean {
+  return typeof window !== "undefined" && typeof Worker !== "undefined";
+}
+
+class UnavailableStockfishEngine {
+  async ready() {
+    return;
+  }
+
+  async evaluate(_fen: string, _depth = 12, _movetime = 1500): Promise<EvalResult> {
+    throw new Error("Stockfish unavailable in this environment.");
+  }
+
+  async evaluateMulti(_fen: string, _depth = 10, _k = 4, _movetime = 1200): Promise<MultiResult> {
+    throw new Error("Stockfish unavailable in this environment.");
+  }
+
+  quit() {
+    return;
+  }
+}
+
 export class StockfishEngine {
   private worker: Worker | null = null;
   private booting: Promise<void> | null = null;
@@ -91,7 +113,7 @@ export class StockfishEngine {
           try { w.terminate(); } catch { /* noop */ }
           this.worker = null;
         }
-      }, 25000);
+      }, 8000);
     });
     return this.booting;
   }
@@ -210,6 +232,9 @@ export class StockfishEngine {
   }
 
   private request(fen: string, depth: number, multi: number, movetime: number) {
+    if (!browserEngineAvailable()) {
+      return Promise.reject(new Error("Stockfish unavailable in this environment."));
+    }
     return new Promise<{ eval: EvalResult; multi: MultiResult }>((resolve, reject) => {
       this.queue.push({ fen, depth, multi, movetime, resolve, reject });
       void this.pump();
@@ -219,14 +244,17 @@ export class StockfishEngine {
   // ---- public API ------------------------------------------------------
 
   async ready() {
+    if (!browserEngineAvailable()) throw new Error("Stockfish unavailable in this environment.");
     await this.boot();
   }
 
   async evaluate(fen: string, depth = 12, movetime = 1500): Promise<EvalResult> {
+    if (!browserEngineAvailable()) throw new Error("Stockfish unavailable in this environment.");
     return (await this.request(fen, depth, 1, movetime)).eval;
   }
 
   async evaluateMulti(fen: string, depth = 10, k = 4, movetime = 1200): Promise<MultiResult> {
+    if (!browserEngineAvailable()) throw new Error("Stockfish unavailable in this environment.");
     return (await this.request(fen, depth, Math.max(1, k), movetime)).multi;
   }
 
@@ -236,7 +264,8 @@ export class StockfishEngine {
 }
 
 let singleton: StockfishEngine | null = null;
-export function getEngine(): StockfishEngine {
+export function getEngine(): StockfishEngine | UnavailableStockfishEngine {
+  if (!browserEngineAvailable()) return new UnavailableStockfishEngine();
   if (!singleton) singleton = new StockfishEngine();
   return singleton;
 }

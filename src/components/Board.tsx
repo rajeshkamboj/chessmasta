@@ -50,13 +50,13 @@ export default function Board({ fen, boardId, orientation = "white", interactive
       for (const row of game.board())
         for (const c of row)
           if (c && c.type === "k" && c.color === game.turn())
-            s[c.square] = { ...s[c.square], background: "radial-gradient(circle, rgba(215,106,94,.85) 30%, transparent 75%)" };
+            s[c.square] = { ...s[c.square], backgroundImage: "radial-gradient(circle, rgba(215,106,94,.85) 30%, transparent 75%)" };
     }
     for (const t of targets) {
-      if (s[t.to]?.background) continue;
+      if (s[t.to]?.backgroundImage) continue;
       s[t.to] = {
         ...s[t.to],
-        background: t.captured
+        backgroundImage: t.captured
           ? "radial-gradient(circle, transparent 55%, rgba(224,176,76,.7) 56%, rgba(224,176,76,.7) 78%, transparent 79%)"
           : "radial-gradient(circle, rgba(26,20,8,.32) 22%, transparent 23%)",
       };
