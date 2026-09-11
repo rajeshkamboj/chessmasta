@@ -1,5 +1,7 @@
 # ChessMasta
 
+Live app: https://chessmasta.vercel.app/
+
 A personal chess coaching application built with Next.js, PostgreSQL, and Drizzle ORM. It gives users a way to review games, track mistakes, practice tactical exercises, and study opening repertoires in a lightweight coaching workflow.
 
 ## Features
