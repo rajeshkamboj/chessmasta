@@ -8,7 +8,7 @@ import Board from "@/components/Board";
 import MoveList from "@/components/MoveList";
 import { getEngine, cpToPawns } from "@/lib/chess/engine";
 import { pickBotMove, fallbackMove, eloDescription } from "@/lib/chess/bot";
-import { checksCapturesThreats, categorize, detectPattern, opponentThreats, replaySans, uciToSan, START_FEN, PATTERN_LABELS } from "@/lib/chess/analyze";
+import { checksCapturesThreats, categorize, detectPattern, isCheckmateMove, opponentThreats, replaySans, uciToSan, START_FEN, PATTERN_LABELS } from "@/lib/chess/analyze";
 import { coachForMistake, threatReveal } from "@/lib/chess/coach";
 import { Swords, Eye, ListChecks, Send, ClipboardPen } from "lucide-react";
 
@@ -124,9 +124,11 @@ export default function OtbPage() {
       const after = await e.evaluate(g.fen(), 11, 1200);
       const evalBefore = before.cp;
       const evalAfter = -after.cp;
+      const terminal = isCheckmateMove(fen, c.san);
       const drop = Math.max(0, Math.round(evalBefore - evalAfter));
-      const category = categorize(drop, evalBefore);
-      const pattern = detectPattern(fen, c.san, evalBefore, drop, sans.length);
+      const sanitizedDrop = terminal ? 0 : drop;
+      const category = categorize(sanitizedDrop, evalBefore, terminal);
+      const pattern = detectPattern(fen, c.san, evalBefore, sanitizedDrop, sans.length);
       const bestSan = uciToSan(fen, before.bestMoveUci) || c.san;
       const hisBest = uciToSan(g.fen(), after.bestMoveUci);
       setFeedback({
@@ -134,9 +136,11 @@ export default function OtbPage() {
         text:
           category === "good"
             ? `Solid. That holds. ${threatReveal(after.bestMoveUci, g.fen())}`
-            : coachForMistake({ fen, playedSan: c.san, bestSan, dropCp: drop, category, pattern, moveNumber: Math.floor(sans.length / 2) + 1 } as never) +
-              (hisBest ? ` His reply was going to be ${hisBest}.` : ""),
-        best: bestSan, drop, pattern,
+            : category === "checkmate"
+              ? `Checkmate. ${hisBest ? `His reply was going to be ${hisBest}.` : ""}`
+              : coachForMistake({ fen, playedSan: c.san, bestSan, dropCp: sanitizedDrop, category, pattern, moveNumber: Math.floor(sans.length / 2) + 1 } as never) +
+                (hisBest ? ` His reply was going to be ${hisBest}.` : ""),
+        best: bestSan, drop: sanitizedDrop, pattern,
       });
       const ply = sans.length + 1;
       setReflections((r) => ({ ...r, [String(ply)]: { ...r[String(ply)], candidate: c.san, dropCp: drop, pattern } }));

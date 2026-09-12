@@ -5,7 +5,7 @@ import { Chess } from "chess.js";
 import Board from "@/components/Board";
 import MoveList from "@/components/MoveList";
 import { getEngine, evalForWhite, cpToPawns } from "@/lib/chess/engine";
-import { aggregate, categorize, detectPattern, uciToSan, PATTERN_LABELS, START_FEN } from "@/lib/chess/analyze";
+import { aggregate, categorize, detectPattern, isCheckmateMove, uciToSan, PATTERN_LABELS, START_FEN } from "@/lib/chess/analyze";
 import { coachForMistake, coachQuestion, exercisePrompt } from "@/lib/chess/coach";
 import { BrainCircuit, ChevronRight, MessageSquare } from "lucide-react";
 
@@ -68,18 +68,24 @@ export default function GameReview({ params }: { params: Promise<{ id: string }>
         const me = mover === "w" ? "white" : "black";
         const evalBefore = before.cp; // POV mover
         const evalAfter = -after.cp; // POV mover
+        const terminal = isCheckmateMove(fens[i], m.san);
         const drop = Math.max(0, Math.round(evalBefore - evalAfter));
+        const sanitizedDrop = terminal ? 0 : drop;
         const bestSan = uciToSan(fens[i], before.bestMoveUci) || m.san;
-        const category = me === userColor ? categorize(drop, evalBefore) : drop >= 300 ? "blunder" : drop >= 150 ? "mistake" : drop >= 70 ? "inaccuracy" : "good";
-        const pattern = me === userColor ? detectPattern(fens[i], m.san, evalBefore, drop, i) : "other";
+        const category = me === userColor
+          ? categorize(sanitizedDrop, evalBefore, terminal)
+          : terminal
+            ? "checkmate"
+            : drop >= 300 ? "blunder" : drop >= 150 ? "mistake" : drop >= 70 ? "inaccuracy" : "good";
+        const pattern = me === userColor ? detectPattern(fens[i], m.san, evalBefore, sanitizedDrop, i) : "other";
         const refl = game.reflections?.[String(i + 1)];
-        const input = { fen: fens[i], playedSan: m.san, bestSan, dropCp: drop, category, pattern, moveNumber: Math.floor(i / 2) + 1 };
+        const input = { fen: fens[i], playedSan: m.san, bestSan, dropCp: sanitizedDrop, category, pattern, moveNumber: Math.floor(i / 2) + 1 };
         return {
           index: i, moveNumber: Math.floor(i / 2) + 1, color: me, san: m.san, fen: fens[i],
           evalBeforeCp: Math.round(evalBefore), evalAfterCp: Math.round(evalAfter), bestSan, pv: before.pv,
-          dropCp: drop, category: category === "good" ? "good" : category, pattern: pattern === "other" ? "planning" : pattern,
-          ...(me === userColor && category !== "good"
-            ? { explanation: coachForMistake(input as never), exercisePrompt: exercisePrompt(pattern, me, drop), userReason: refl?.reason }
+          dropCp: sanitizedDrop, category: category === "good" ? "good" : category, pattern: pattern === "other" ? "planning" : pattern,
+          ...(me === userColor && category !== "good" && category !== "checkmate"
+            ? { explanation: coachForMistake(input as never), exercisePrompt: exercisePrompt(pattern, me, sanitizedDrop), userReason: refl?.reason }
             : {}),
         };
       });
@@ -101,9 +107,9 @@ export default function GameReview({ params }: { params: Promise<{ id: string }>
   if (!game) return <p className="text-muted">Loading…</p>;
 
   const evals = game.analysis?.evaluations ?? null;
-  const myErrors = (evals ?? []).filter((e) => e.color === game.userColor && e.category !== "good");
+  const myErrors = (evals ?? []).filter((e) => e.color === game.userColor && e.category !== "good" && e.category !== "checkmate");
   const agg = evals ? aggregate(evals as never, game.userColor) : null;
-  const categories = evals ? evals.map((e) => (e.category === "good" ? null : e.category)) : undefined;
+  const categories = evals ? evals.map((e) => (e.category === "good" || e.category === "checkmate" ? null : e.category)) : undefined;
   const cur = ply > 0 ? evals?.[ply - 1] : null;
 
   // eval sparkline (white POV, clamped)
@@ -149,8 +155,8 @@ export default function GameReview({ params }: { params: Promise<{ id: string }>
             </div>
           )}
           {cur && cur.category !== "good" && (
-            <div className="panel mt-3 border-l-4 p-4" style={{ borderLeftColor: cur.category === "blunder" ? "#d76a5e" : cur.category === "mistake" ? "#d8a23a" : "#93a094" }}>
-              <p className="label">{cur.category} · {PATTERN_LABELS[cur.pattern] ?? cur.pattern}</p>
+            <div className="panel mt-3 border-l-4 p-4" style={{ borderLeftColor: cur.category === "checkmate" ? "#6fbf73" : cur.category === "blunder" ? "#d76a5e" : cur.category === "mistake" ? "#d8a23a" : "#93a094" }}>
+              <p className="label">{cur.category} · {cur.category === "checkmate" ? "terminal move" : PATTERN_LABELS[cur.pattern] ?? cur.pattern}</p>
               <p className="mt-1 text-sm"><span className="text-bad line-through">{cur.san}</span> <ChevronRight size={13} className="inline" /> <strong className="text-good">{cur.bestSan}</strong> <span className="text-muted">({cpToPawns(cur.evalBeforeCp)} → {cpToPawns(cur.evalAfterCp)})</span></p>
               {cur.explanation && <p className="coach-quote mt-2 text-[15px] text-cream/90">{cur.explanation}</p>}
             </div>

@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   for (const o of old) await db.update(exercises).set({ mistakeId: null }).where(eq(exercises.mistakeId, o.id));
   await db.delete(mistakes).where(eq(mistakes.gameId, gameId));
 
-  const errors = (evaluations as any[]).filter((e) => e.category && e.category !== "good" && e.color === game.userColor);
+  const errors = (evaluations as any[]).filter((e) => e.category && e.category !== "good" && e.category !== "checkmate" && e.color === game.userColor);
   const created: any[] = [];
   for (const e of errors) {
     const [m] = await db

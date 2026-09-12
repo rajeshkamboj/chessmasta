@@ -1,4 +1,5 @@
-import { Chess, Square } from "chess.js";
+import { Chess } from "chess.js";
+type Square = import("chess.js").Square;
 
 export const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -49,7 +50,7 @@ export type MoveEval = {
   bestSan: string;
   pv: string;
   dropCp: number;
-  category: "good" | "inaccuracy" | "mistake" | "blunder";
+  category: "good" | "inaccuracy" | "mistake" | "blunder" | "checkmate";
   pattern: string;
 };
 
@@ -153,7 +154,18 @@ export function detectPattern(
   return dropCp >= 260 ? "calculation" : "planning";
 }
 
-export function categorize(dropCp: number, evalBefore: number): MoveEval["category"] {
+export function isCheckmateMove(fenBefore: string, san: string): boolean {
+  try {
+    const g = new Chess(fenBefore);
+    const m = g.move(san);
+    return Boolean(m && g.isCheckmate());
+  } catch {
+    return false;
+  }
+}
+
+export function categorize(dropCp: number, evalBefore: number, isTerminal = false): MoveEval["category"] {
+  if (isTerminal) return "checkmate";
   // Already dead lost or dead won: small wobbles aren't "mistakes" worth training.
   const abs = Math.abs(evalBefore);
   if (abs >= 600 && dropCp < abs * 0.5) return "good";
@@ -173,14 +185,16 @@ export type GameAggregate = {
 
 export function aggregate(evaluations: MoveEval[], userColor: string): GameAggregate {
   const mine = evaluations.filter((e) => e.color === userColor);
-  const errors = mine.filter((e) => e.category !== "good");
+  const nonTerminal = mine.filter((e) => e.category !== "good" && e.category !== "checkmate");
   const byPattern: Record<string, number> = {};
-  for (const e of errors) byPattern[e.pattern] = (byPattern[e.pattern] ?? 0) + 1;
+  for (const e of nonTerminal) byPattern[e.pattern] = (byPattern[e.pattern] ?? 0) + 1;
   return {
-    blunders: errors.filter((e) => e.category === "blunder").length,
-    mistakes: errors.filter((e) => e.category === "mistake").length,
-    inaccuracies: errors.filter((e) => e.category === "inaccuracy").length,
-    acpl: mine.length ? Math.round(mine.reduce((s, e) => s + Math.min(e.dropCp, 300), 0) / mine.length) : 0,
+    blunders: nonTerminal.filter((e) => e.category === "blunder").length,
+    mistakes: nonTerminal.filter((e) => e.category === "mistake").length,
+    inaccuracies: nonTerminal.filter((e) => e.category === "inaccuracy").length,
+    acpl: mine.length
+      ? Math.round(mine.reduce((s, e) => s + (e.category === "checkmate" ? 0 : Math.min(e.dropCp, 300)), 0) / mine.length)
+      : 0,
     byPattern,
   };
 }

@@ -156,7 +156,7 @@ export class StockfishEngine {
         depth,
         uci: pv.split(/\s+/)[0],
         pv,
-        cp: sM[1] === "cp" ? abs : abs > 0 ? 100000 - abs * 100 : -100000 + abs * 100,
+        cp: sM[1] === "cp" ? abs : (abs > 0 ? 100000 : -100000),
         mate: sM[1] === "mate" ? abs : null,
       };
       const prev = this.lines.get(mpv);

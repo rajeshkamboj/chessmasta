@@ -4,6 +4,7 @@ const CAT_COLOR: Record<string, string> = {
   blunder: "#d76a5e",
   mistake: "#d8a23a",
   inaccuracy: "#93a094",
+  checkmate: "#6fbf73",
 };
 
 export default function MoveList({
