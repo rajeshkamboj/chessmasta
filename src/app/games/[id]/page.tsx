@@ -27,10 +27,11 @@ export default function GameReview({ params }: { params: Promise<{ id: string }>
   const [busy, setBusy] = useState(false);
   const loaded = useRef(false);
 
-  if (!loaded.current) {
+  useEffect(() => {
+    if (loaded.current) return;
     loaded.current = true;
     fetch(`/api/games/${id}`).then((r) => r.json()).then((g) => { setGame(g); setPly((g.moves ?? []).length); });
-  }
+  }, [id]);
 
   const fens = useMemo(() => {
     if (!game) return [START_FEN];
@@ -104,16 +105,15 @@ export default function GameReview({ params }: { params: Promise<{ id: string }>
     await fetch(`/api/games/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reflections }) });
   }
 
-  if (!game) return <p className="text-muted">Loading…</p>;
-
-  const evals = game.analysis?.evaluations ?? null;
-  const myErrors = (evals ?? []).filter((e) => e.color === game.userColor && e.category !== "good" && e.category !== "checkmate");
-  const agg = evals ? aggregate(evals as never, game.userColor) : null;
+  const evals = game?.analysis?.evaluations ?? null;
+  const myErrors = (evals ?? []).filter((e) => e && game && e.color === game.userColor && e.category !== "good" && e.category !== "checkmate");
+  const agg = evals && game ? aggregate(evals as never, game.userColor) : null;
   const categories = evals ? evals.map((e) => (e.category === "good" || e.category === "checkmate" ? null : e.category)) : undefined;
-  const cur = ply > 0 ? evals?.[ply - 1] : null;
-  const maxPly = game.moves.length;
+  const cur = ply > 0 && evals ? evals[ply - 1] : null;
+  const maxPly = game ? game.moves.length : 0;
 
   useEffect(() => {
+    if (!game) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
@@ -129,7 +129,9 @@ export default function GameReview({ params }: { params: Promise<{ id: string }>
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [maxPly]);
+  }, [game, maxPly]);
+
+  if (!game) return <p className="text-muted">Loading…</p>;
 
   // eval sparkline (white POV, clamped)
   const points = evals
