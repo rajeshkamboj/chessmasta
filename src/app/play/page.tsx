@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Chess } from "chess.js";
 import Board from "@/components/Board";
 import MoveList from "@/components/MoveList";
@@ -22,6 +22,31 @@ export default function PlayPage() {
   const meta = useRef({ title: "", userColor: "white", whiteName: "Me", blackName: "Opponent", result: "*" });
 
   const game = useMemo(() => new Chess(fen), [fen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshEval() {
+      try {
+        const e = getEngine();
+        await e.ready();
+        const r = await e.evaluate(fen, 12, 1200);
+        const g = new Chess(fen);
+        let best = r.bestMoveUci;
+        try {
+          const m = g.move({ from: r.bestMoveUci.slice(0, 2), to: r.bestMoveUci.slice(2, 4), promotion: r.bestMoveUci[4] || "q" });
+          best = m.san;
+        } catch {
+          // ignore invalid best-move payloads
+        }
+        if (!cancelled) setEvalState({ cp: r.cp, best });
+      } catch {
+        if (!cancelled) setEvalState(null);
+      }
+    }
+
+    void refreshEval();
+    return () => { cancelled = true; };
+  }, [fen]);
 
   function onMove(from: string, to: string): boolean {
     const g = new Chess(fen);
@@ -93,6 +118,10 @@ export default function PlayPage() {
   }
 
   const cct = useMemo(() => checksCapturesThreats(fen), [fen]);
+  const strength = evalState ? evalForWhite(evalState.cp, fen) : 0;
+  const meterRatio = Math.min(0.5, Math.abs(strength) / 500);
+  const strengthLabel = strength > 60 ? "White strong" : strength < -60 ? "Black strong" : "Balanced";
+  const strengthTone = strength > 0 ? "text-good" : strength < 0 ? "text-bad" : "text-warn";
 
   async function save() {
     const res = await fetch("/api/games", {
@@ -106,7 +135,29 @@ export default function PlayPage() {
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,620px)_1fr]">
       <div>
-        <div className="board-glow">
+        <div className="board-glow relative">
+          {evalState && (
+            <div className="strength-meter pointer-events-none absolute left-3 right-3 top-3 z-10">
+              <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[.2em] text-cream/80">
+                <span>White</span>
+                <span className={strengthTone}>{strengthLabel}</span>
+                <span>Black</span>
+              </div>
+              <div className="meter-track mt-2">
+                <div
+                  className="meter-fill"
+                  style={
+                    strength >= 0
+                      ? { left: "50%", width: `${meterRatio * 100}%` }
+                      : { right: "50%", width: `${meterRatio * 100}%` }
+                  }
+                />
+              </div>
+              <div className="mt-1 text-center text-[10px] tracking-[.18em] text-cream/70">
+                {cpToPawns(strength)}
+              </div>
+            </div>
+          )}
           <Board fen={fen} boardId="play" orientation={orientation} onMove={onMove} lastMove={last} />
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">

@@ -59,4 +59,31 @@ html, body {
 
 .board-glow { box-shadow: 0 24px 80px -24px rgba(0,0,0,.8), 0 0 0 1px #2a362d; border-radius: 6px; overflow: hidden; }
 
+.strength-meter {
+  background: rgba(11, 17, 14, 0.72);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(224, 176, 76, 0.28);
+  border-radius: 999px;
+  padding: .52rem .8rem .45rem;
+  box-shadow: 0 12px 32px -18px rgba(0,0,0,.9);
+}
+
+.meter-track {
+  position: relative;
+  height: .7rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(215,106,94,.9) 0%, rgba(224,176,76,.8) 50%, rgba(111,191,115,.9) 100%);
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.meter-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: rgba(12, 18, 14, 0.72);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.12);
+}
+
 .coach-quote { font-family: var(--font-display); font-style: italic; }
