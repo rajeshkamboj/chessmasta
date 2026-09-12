@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useMemo, useRef, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 import { Chess } from "chess.js";
 import Board from "@/components/Board";
 import MoveList from "@/components/MoveList";
@@ -111,6 +111,25 @@ export default function GameReview({ params }: { params: Promise<{ id: string }>
   const agg = evals ? aggregate(evals as never, game.userColor) : null;
   const categories = evals ? evals.map((e) => (e.category === "good" || e.category === "checkmate" ? null : e.category)) : undefined;
   const cur = ply > 0 ? evals?.[ply - 1] : null;
+  const maxPly = game.moves.length;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setPly((p) => Math.max(0, p - 1));
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setPly((p) => Math.min(maxPly, p + 1));
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [maxPly]);
 
   // eval sparkline (white POV, clamped)
   const points = evals
@@ -137,6 +156,13 @@ export default function GameReview({ params }: { params: Promise<{ id: string }>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,560px)_1fr]">
         <div>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button className="btn btn-ghost" onClick={() => setPly((p) => Math.max(0, p - 1))} disabled={ply === 0}>Prev</button>
+              <button className="btn btn-ghost" onClick={() => setPly((p) => Math.min(maxPly, p + 1))} disabled={ply === maxPly}>Next</button>
+            </div>
+            <span className="text-xs text-muted">Position {ply}/{maxPly}</span>
+          </div>
           <div className="board-glow">
             <Board fen={fens[ply]} boardId="review" interactive={false} orientation={game.userColor as "white" | "black"}
               lastMove={ply > 0 && game.moves[ply - 1] ? (() => { const g = new Chess(fens[ply - 1]); const m = g.moves({ verbose: true }).find((x) => x.san === game.moves[ply - 1].san); return m ? { from: m.from, to: m.to } : null; })() : null}
