@@ -6,7 +6,7 @@ import { Chess } from "chess.js";
 import { useRouter } from "next/navigation";
 import Board from "@/components/Board";
 import MoveList from "@/components/MoveList";
-import { getEngine, cpToPawns } from "@/lib/chess/engine";
+import { getEngine, cpToPawns, evalForWhite } from "@/lib/chess/engine";
 import { pickBotMove, fallbackMove, eloDescription } from "@/lib/chess/bot";
 import { checksCapturesThreats, categorize, detectPattern, isCheckmateMove, opponentThreats, replaySans, uciToSan, START_FEN, PATTERN_LABELS } from "@/lib/chess/analyze";
 import { coachForMistake, threatReveal } from "@/lib/chess/coach";
@@ -33,6 +33,9 @@ export default function OtbPage() {
   const [engineThinking, setEngineThinking] = useState(false);
   const [engineNote, setEngineNote] = useState("");
   const [stuck, setStuck] = useState(false);
+  const [evalCp, setEvalCp] = useState<number | null>(null);
+  const [isEvaluating, setIsEvaluating] = useState(false);
+  const evalTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const busy = useRef(false);
   const userTurn = useRef(true);
   void fens;
@@ -219,6 +222,39 @@ export default function OtbPage() {
     return () => clearTimeout(t);
   }, [engineThinking]);
 
+  // Live evaluation bar: evaluate the current position periodically
+  useEffect(() => {
+    // Clear any existing timeout
+    if (evalTimeoutRef.current) {
+      clearTimeout(evalTimeoutRef.current);
+    }
+    // Set a new timeout to request evaluation after 500ms
+    evalTimeoutRef.current = setTimeout(() => {
+      setIsEvaluating(true);
+      const engine = getEngine();
+      engine.evaluate(fen, 12, 1500)
+        .then((result) => {
+          // Convert to White's perspective
+          const whiteCp = evalForWhite(result.cp, fen);
+          setEvalCp(whiteCp);
+        })
+        .catch((error) => {
+          console.error("Evaluation error:", error);
+          setEvalCp(null);
+        })
+        .finally(() => {
+          setIsEvaluating(false);
+        });
+    }, 500);
+
+    // Cleanup function
+    return () => {
+      if (evalTimeoutRef.current) {
+        clearTimeout(evalTimeoutRef.current);
+      }
+    };
+  }, [fen]);
+
   function saveReflection(updates: Partial<Reflection>) {
     const ply = String(sans.length + (isMyTurn ? 1 : 0));
     setReflections((r) => ({ ...r, [ply]: { ...(r[ply] ?? {}), ...updates } }));
@@ -240,6 +276,41 @@ export default function OtbPage() {
     const data = await res.json();
     router.push(`/games/${data.id}`);
   }
+
+  const evaluationBar = () => {
+    if (evalCp === null) {
+      return <div className="flex items-center space-x-3">
+        <div className="flex-1 h-2 bg-gray-200 rounded">Evaluating...</div>
+        <div className="text-sm font-mono text-gray-400">--</div>
+      </div>;
+    }
+
+    // Clamp the evaluation to -500 to +500 centipawns for the bar
+    const clampedCp = Math.max(-500, Math.min(500, evalCp));
+    // Convert to a percentage from 0 to 1
+    const percentage = (clampedCp + 500) / 1000;
+
+    // Determine the color based on the evaluation (green for white advantage, red for black advantage)
+    let barColor = "#6fbf73"; // green for good (white advantage)
+    if (evalCp < 0) {
+      // Red for black advantage
+      barColor = "#d76a5e";
+    }
+
+    return (
+      <div className="flex items-center space-x-3">
+        <div className="flex-1">
+          <div className="relative h-2 w-full bg-gray-200 rounded overflow-hidden">
+            <div
+              className="absolute left-0 top-0 h-full"
+              style={{ width: `${percentage * 100}%`, backgroundColor: barColor }}
+            ></div>
+          </div>
+        </div>
+        <div className="text-sm font-mono">{cpToPawns(evalCp)}</div>
+      </div>
+    );
+  };
 
   const cct = useMemo(() => checksCapturesThreats(fen), [fen]);
   const threats = useMemo(() => opponentThreats(fen), [fen]);
@@ -302,6 +373,12 @@ export default function OtbPage() {
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,560px)_1fr]">
           <div>
+            {mode === "live" && (
+              <div className="mb-3">
+                <div className="text-xs text-muted mb-1">Evaluation</div>
+                {evaluationBar()}
+              </div>
+            )}
             <div className="board-glow">
               <Board fen={fen} boardId="otb" orientation={meta.userColor as "white" | "black"} onMove={onCandidate} lastMove={last}
                 interactive={mode === "log" || (isMyTurn && (meta.fast || stage === "candidate") && stage !== "feedback" && !engineThinking && !over)} />
